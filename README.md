@@ -166,3 +166,28 @@ This project is built progressively through 9 DevOps stages:
 Save it as `README.md` in the project root. Once you push to GitHub it will render beautifully as the homepage of your repo!
 
 Ready for Stage 2 — Git + GitHub?
+Create repo
+clone 
+create main(default) and feature branch
+push changes in feature branch
+Raise PR from feature to main
+Merge PR in main
+
+Stage 3 - Maven build + JAR
+## How to Build
+
+### Build the JAR artifact
+```bash
+./mvnw clean package -DskipTests
+```
+
+### Run the JAR directly (no Maven needed)
+```bash
+java -jar target/leavemgmt-0.0.1-SNAPSHOT.jar
+```
+
+### Difference
+| Command | Used for |
+|---|---|
+| `./mvnw spring-boot:run` | Development only | Need Maven installed and entire source code required
+| `java -jar target/app.jar` | Production/deployment | Need only Java installed and only JAR artifact file is enough
