@@ -187,7 +187,7 @@ java -jar target/leavemgmt-0.0.1-SNAPSHOT.jar
 ```
 
 ### Difference
-| Command | Used for |
-|---|---|
-| `./mvnw spring-boot:run` | Development only | Need Maven installed and entire source code required
-| `java -jar target/app.jar` | Production/deployment | Need only Java installed and only JAR artifact file is enough
+| Command | Used for | Example |
+|---|---|---|
+| `./mvnw spring-boot:run` | Development only | Need Maven installed and entire source code required |
+| `java -jar target/app.jar` | Production/deployment | Need only Java installed and only JAR artifact file is enough |
