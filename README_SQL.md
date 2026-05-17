@@ -90,4 +90,4 @@ spring.jpa.properties.hibernate.format_sql=true
 This prints every SQL query JPA runs in the terminal — useful for learning and debugging!
 ```
 
-This makes it clear for anyone reading the repo exactly how JPA bridges Java and PostgreSQL. Ready for Stage 2?
+This makes it clear for anyone reading the repo exactly how JPA bridges Java and PostgreSQL. 
