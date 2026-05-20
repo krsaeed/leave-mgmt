@@ -111,19 +111,13 @@ docker start postgres-local
 ### Step 3 — Test the API
 ```bash
 # Create a manager
-curl -X POST http://localhost:8082/api/employees \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Alice Smith","email":"alice@company.com","department":"Engineering","role":"MANAGER"}'
+curl -X POST http://localhost:8082/api/employees -H "Content-Type: application/json" -d '{"name":"Alice Smith","email":"alice@company.com","department":"Engineering","role":"MANAGER"}'
 
 # Create an employee
-curl -X POST http://localhost:8082/api/employees \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Bob Jones","email":"bob@company.com","department":"Engineering","role":"EMPLOYEE"}'
+curl -X POST http://localhost:8082/api/employees -H "Content-Type: application/json" -d '{"name":"Bob Jones","email":"bob@company.com","department":"Engineering","role":"EMPLOYEE"}'
 
 # Submit leave request
-curl -X POST http://localhost:8082/api/leaves/employee/2 \
-  -H "Content-Type: application/json" \
-  -d '{"startDate":"2025-06-01","endDate":"2025-06-05","leaveType":"ANNUAL","reason":"Family vacation"}'
+curl -X POST http://localhost:8082/api/leaves/employee/2 -H "Content-Type: application/json" -d '{"startDate":"2025-06-01","endDate":"2025-06-05","leaveType":"ANNUAL","reason":"Family vacation"}'
 
 # Approve leave
 curl -X PUT "http://localhost:8082/api/leaves/1/review?managerId=1&decision=APPROVED"
@@ -191,3 +185,105 @@ java -jar target/leavemgmt-0.0.1-SNAPSHOT.jar
 |---|---|---|
 | `./mvnw spring-boot:run` | Development only | Need Maven installed and entire source code required |
 | `java -jar target/app.jar` | Production/deployment | Need only Java installed and only JAR artifact file is enough |
+
+## Stage 4: Docker — Containerizing the Application
+
+### What was done
+- Written a Dockerfile to package the Spring Boot JAR into a Docker image
+- Built the Docker image locally
+- Run the application as a Docker container
+- Connected app container to PostgreSQL container via a shared Docker network
+
+### Dockerfile
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/leavemgmt-0.0.1-SNAPSHOT.jar app.jar
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+
+### Key concepts learned
+
+**JAR vs Docker Image:**
+| | JAR | Docker Image |
+|---|---|---|
+| Contains | Code + dependencies | JAR + Java + OS |
+| Needs Java installed? | ✅ Yes | ❌ No |
+| Runs anywhere? | Only where Java exists | Anywhere Docker exists |
+
+**Dockerfile instructions:**
+| Instruction | Purpose |
+|---|---|
+| `FROM` | Base image to start from (Java 21 JRE) |
+| `WORKDIR` | Set working directory inside container |
+| `COPY` | Copy JAR from machine into container |
+| `ENTRYPOINT` | Command to run when container starts |
+
+**Why JRE not JDK in production:**
+- JDK = full kit to develop and build Java (not needed on server)
+- JRE = just enough to run Java (smaller, more secure)
+
+### Commands
+
+**Build image:**
+```bash
+docker build -t leavemgmt:1.0 .
+```
+
+**Create network (so app and DB can talk by name):**
+```bash
+docker network create leavemgmt-network
+```
+
+**Start PostgreSQL on network:**
+```bash
+docker run -d \
+  --name postgres-local \
+  --network leavemgmt-network \
+  -e POSTGRES_DB=leavemgmt \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=yourpassword \
+  -p 5432:5432 \
+  postgres:16-alpine
+```
+
+**Run app container:**
+```bash
+docker run -p 8082:8082 \
+  --network leavemgmt-network \
+  -e DB_URL=jdbc:postgresql://postgres-local:5432/leavemgmt \
+  -e DB_USER=postgres \
+  -e DB_PASS=yourpassword \
+  leavemgmt:1.0
+```
+
+### Why Docker network matters
+Without a shared network, containers are isolated and can't find
+each other by name. By placing both containers on `leavemgmt-network`,
+the app can reach PostgreSQL using the container name `postgres-local`
+instead of an IP address which changes on every restart.
+
+### Problem this stage revealed
+Running multiple containers manually is painful:
+- Create network manually
+- Start each container separately
+- Pass connection strings manually
+- No guaranteed startup order
+
+**This is exactly what Docker Compose solves in Stage 5!**
+
+### WSL + Docker Desktop setup
+When using Docker on WSL, images persist only when WSL is connected
+to Docker Desktop engine:
+```bash
+# One time setup
+docker context use default   # use Docker Desktop engine from WSL
+# Enable WSL Integration in Docker Desktop Settings → Resources → WSL Integration
+```
+
+### DevOps pipeline position
+```
+Code → Maven builds JAR → Docker builds Image → Container runs on server
+                                ↑
+                          Stage 4 lives here
+```
