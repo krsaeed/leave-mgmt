@@ -149,7 +149,7 @@ This project is built progressively through 9 DevOps stages:
 | 1 | Run app locally (Spring Boot + PostgreSQL) |
 | 2 | Git + GitHub |
 | 3 | Maven build + JAR |
-| 4 | Docker + multi-stage build |
+| 4 | Docker |
 | 5 | Docker Compose (app + DB together) |
 | 6 | Jenkins CI pipeline |
 | 7 | Deploy to AWS EC2 |
@@ -287,3 +287,81 @@ Code → Maven builds JAR → Docker builds Image → Container runs on server
                                 ↑
                           Stage 4 lives here
 ```
+
+## Stage 5: Docker Compose — Multi-Container Orchestration
+
+### What was done
+- Written a docker-compose.yml to manage both app and PostgreSQL containers
+- Replaced manual docker run commands with single command startup
+- Added healthcheck so app waits for PostgreSQL to be ready
+- Added named volume so database data persists across restarts
+
+### docker-compose.yml structure
+```yaml
+services:
+  postgres:                          # DB container
+    image: postgres:16-alpine
+    healthcheck:                     # is postgres ready?
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data  # persist data!
+
+  app:                               # app container
+    image: leavemgmt:1.0
+    depends_on:
+      postgres:
+        condition: service_healthy   # wait for postgres first!
+
+volumes:
+  postgres-data:                     # named volume
+
+networks:
+  leavemgmt-network:                 # shared network
+```
+
+### Key concepts learned
+
+**Why Docker Compose over manual commands:**
+| Manual docker run | Docker Compose |
+|---|---|
+| 5 separate commands | `docker compose up` |
+| Manual network creation | Auto created |
+| No startup order control | `depends_on` + healthcheck |
+| Data lost on container delete | Named volume persists |
+| IP addresses for hostnames | Service names work |
+| Easy to forget steps | Everything in one file |
+
+**Attached vs Detached mode:**
+| Command | Terminal | Use for |
+|---|---|---|
+| `docker compose up` | Locked, shows logs | Debugging, learning |
+| `docker compose up -d` | Free, runs in background | Normal usage |
+
+**Named Volume — why it matters:**
+
+# Step 1 — create network
+docker network create leavemgmt-network
+
+# Step 2 — start postgres
+docker run -d \
+  --name postgres-local \
+  --network leavemgmt-network \
+  -e POSTGRES_DB=leavemgmt \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=yourpassword \
+  -p 5432:5432 \
+  postgres:16-alpine
+
+# Step 3 — wait and hope postgres is ready (manual guessing!)
+
+# Step 4 — run app
+docker run -p 8082:8082 \
+  --network leavemgmt-network \
+  -e DB_URL=jdbc:postgresql://postgres-local:5432/leavemgmt \
+  -e DB_USER=postgres \
+  -e DB_PASS=yourpassword \
+  leavemgmt:1.0
+
+# Step 5 — if app crashed because postgres wasn't ready, repeat step 4!
+
+These 5 steps were replaced by 1 docker compose command.
