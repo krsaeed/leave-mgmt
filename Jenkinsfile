@@ -18,6 +18,7 @@ pipeline {
         stage('Build JAR') {
             steps {
                 echo 'Building JAR artifact...'
+                sh 'chmod +x mvnw'
                 sh './mvnw clean package -DskipTests'
             }
         }
