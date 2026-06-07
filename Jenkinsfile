@@ -33,7 +33,7 @@ pipeline {
         stage('Deploy') {
             steps {
                 echo 'Deploying application...'
-                sh 'docker compose up -d --no-deps --build app'
+                sh 'docker compose up -d --no-deps --build --force-recreate app'
             }
         }
 
