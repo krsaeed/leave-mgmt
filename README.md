@@ -365,3 +365,113 @@ docker run -p 8082:8082 \
 # Step 5 — if app crashed because postgres wasn't ready, repeat step 4!
 
 These 5 steps were replaced by 1 docker compose command.
+
+## Stage 6: Jenkins CI Pipeline
+
+### Overview
+Configured a Jenkins CI pipeline that automatically builds and deploys the application
+whenever changes are merged to the `main` branch.
+
+### Pipeline Stages
+| Stage | Description |
+|---|---|
+| Checkout | Jenkins pulls the latest code from GitHub (`main` branch) |
+| Build JAR | Compiles the Spring Boot app and packages it as a JAR using Maven Wrapper |
+| Build Docker Image | Builds a Docker image from the JAR and tags it as `leavemgmt:1.0` |
+| Deploy | Removes the old app container and starts a fresh one via Docker Compose |
+
+### Files
+- `Jenkinsfile` — declarative pipeline definition at the repo root
+- `Dockerfile` — defines the Docker image build instructions
+- `docker-compose.yml` — defines all three services (postgres, app, jenkins)
+
+### How It Works
+1. Developer creates a feature branch and makes changes
+2. A Pull Request is opened and merged into `main`
+3. Jenkins detects the change and triggers the pipeline automatically
+4. Maven builds the JAR (`leavemgmt-0.0.1-SNAPSHOT.jar`)
+5. Docker builds a new image using the JAR
+6. Docker Compose stops the old app container and starts a fresh one with the new image
+7. The updated application is live on port `8082`
+
+### Key Decisions
+- **`chmod +x mvnw` in Jenkinsfile** — ensures Maven Wrapper is executable after
+  Jenkins clones the repo, since file permissions are not preserved by Git by default
+- **`docker rm -f leavemgmt-app || true`** — safely removes any existing container
+  before deploying, including containers not managed by Compose; `|| true` prevents
+  pipeline failure if no container exists
+- **`docker compose -p leavemgmt`** — explicitly sets the Compose project name so the
+  network name is always `leavemgmt_leavemgmt-network` regardless of which directory
+  Jenkins runs from; without this, Jenkins prefixes its workspace name to the network,
+  isolating the app container from the postgres container
+- **Separate build and deploy stages** — keeps concerns separated and provides a clear
+  integration point for future enhancements like image scanning or pushing to a registry
+
+### Issues Encountered & Fixes
+| Issue | Cause | Fix |
+|---|---|---|
+| `mvnw` exit code 126 | Maven Wrapper lacked executable permission after git clone | Added `chmod +x mvnw` in Jenkinsfile; set permission permanently via `git update-index --chmod=+x mvnw` |
+| Container name conflict on deploy | Old `leavemgmt-app` container not managed by Compose couldn't be recreated | Added `docker rm -f leavemgmt-app \|\| true` before `docker compose up` |
+| `UnknownHostException: postgres` | Jenkins Compose ran from its workspace directory, creating a different network (`leavemgmt-pipeline_leavemgmt-network`) than the one postgres was on | Added `-p leavemgmt` to all `docker compose` commands to enforce a consistent project name and network |
+
+### Running the Pipeline Manually
+1. Open Jenkins at `http://localhost:8080`
+2. Navigate to `leavemgmt-pipeline`
+3. Click **Build Now**
+
+### Verifying the Deployment
+```bash
+# Check the app container is running
+docker ps | grep leavemgmt-app
+
+# Hit the API
+curl http://localhost:8082/api/employees
+```
+
+### Final Jenkinsfile
+```groovy
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Cloning repository...'
+                checkout scm
+            }
+        }
+
+        stage('Build JAR') {
+            steps {
+                echo 'Building JAR artifact...'
+                sh 'chmod +x mvnw'
+                sh './mvnw clean package -DskipTests'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                echo 'Building Docker image...'
+                sh 'docker build -t leavemgmt:1.0 .'
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo 'Deploying application...'
+                sh 'docker rm -f leavemgmt-app || true'
+                sh 'docker compose -p leavemgmt up -d --no-deps app'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
+    }
+}
+```
