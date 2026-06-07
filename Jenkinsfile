@@ -33,7 +33,8 @@ pipeline {
         stage('Deploy') {
             steps {
                 echo 'Deploying application...'
-                sh 'docker compose up -d --no-deps --build --force-recreate app'
+                sh 'docker rm -f leavemgmt-app || true'
+                sh 'docker compose up -d --no-deps --build app'
             }
         }
 
