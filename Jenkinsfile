@@ -34,7 +34,7 @@ pipeline {
             steps {
                 echo 'Deploying application...'
                 sh 'docker rm -f leavemgmt-app || true'
-                sh 'docker compose up -d --no-deps --build app'
+                sh 'docker compose -p leavemgmt up -d --no-deps app'
             }
         }
 
