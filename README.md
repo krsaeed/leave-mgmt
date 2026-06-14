@@ -475,3 +475,153 @@ pipeline {
     }
 }
 ```
+
+## Stage 7: Deploy to AWS EC2
+
+### Overview
+Manually deployed the application to a cloud server on AWS EC2, making it accessible
+over the internet. This stage simulates a real-world deployment to a remote server
+and introduces multi-stage Docker builds to eliminate build tool dependencies on the
+server.
+
+### Infrastructure
+| Component | Details |
+|---|---|
+| Cloud Provider | AWS |
+| Instance Type | t2.micro (Free Tier) |
+| OS | Ubuntu Server 22.04 LTS |
+| Region | us-east-1 |
+| Ports opened | 22 (SSH), 8082 (app) |
+
+### What Changed
+- Upgraded `Dockerfile` to a multi-stage build — the JAR is now built inside Docker,
+  so the server needs nothing except Docker installed
+- Deployed only the `postgres` and `app` services on EC2 (jenkins not needed on server)
+
+### Multi-Stage Dockerfile
+```dockerfile
+# Stage 1 — Build
+FROM eclipse-temurin:21-jdk-alpine AS builder
+WORKDIR /app
+COPY mvnw .
+COPY .mvn .mvn
+COPY pom.xml .
+COPY src src
+RUN chmod +x mvnw && ./mvnw clean package -DskipTests
+
+# Stage 2 — Run
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY --from=builder /app/target/leavemgmt-0.0.1-SNAPSHOT.jar app.jar
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+
+**Why multi-stage:**
+| | Single-stage | Multi-stage |
+|---|---|---|
+| Build tools needed on server | ✅ Java + Maven | ❌ Nothing |
+| Final image contains build tools | ✅ Yes (bloated) | ❌ No (lean) |
+| Builds anywhere with just Docker | ❌ No | ✅ Yes |
+
+### How It Works
+
+Developer pushes to GitHub
+
+↓
+
+SSH into EC2
+
+↓
+
+git pull origin main
+
+↓
+
+docker build -t leavemgmt:1.0 .
+
+├── Stage 1: JDK image pulls, Maven builds JAR inside Docker
+
+└── Stage 2: JAR copied into lean JRE image
+
+↓
+
+docker compose up -d postgres app
+
+├── postgres container starts, healthcheck passes
+
+└── app container starts, connects to postgres
+
+↓
+
+App live at http://<EC2-PUBLIC-IP>:8082
+
+### EC2 Setup Steps
+1. Launch Ubuntu 22.04 t2.micro instance
+2. Create key pair (`leavemgmt-key.pem`) and download it
+3. Configure Security Group — open ports 22 and 8082
+4. Set key permissions and SSH in:
+```bash
+cp /path/to/leavemgmt-key.pem ~/.ssh/
+chmod 400 ~/.ssh/leavemgmt-key.pem
+ssh -i ~/.ssh/leavemgmt-key.pem ubuntu@<EC2-PUBLIC-IP>
+```
+5. Install Docker:
+```bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker ubuntu
+newgrp docker
+```
+6. Clone repo and deploy:
+```bash
+git clone https://github.com/krsaeed/leave-mgmt.git
+cd leave-mgmt
+docker build -t leavemgmt:1.0 .
+docker compose up -d postgres app
+```
+
+### Verifying the Deployment
+```bash
+# From your local machine
+curl http://<EC2-PUBLIC-IP>:8082/api/employees
+
+# On EC2 — check containers are running
+docker ps
+
+# On EC2 — check app logs
+docker logs leavemgmt-app
+```
+
+### Key Learnings
+- **chmod 400 on .pem file** — SSH refuses to use a private key that is readable
+  by others; must be restricted to owner only
+- **Copy .pem to WSL filesystem** — `chmod` does not work correctly on
+  Windows-mounted drives (`/mnt/d/`); key must be copied to WSL's own filesystem
+  (`~/.ssh/`) first
+- **Multi-stage build** — EC2 only needs Docker; no Java or Maven installation
+  required; the builder stage handles compilation entirely inside Docker
+- **Selective Compose services** — `docker compose up -d postgres app` starts only
+  the needed services; jenkins is omitted on the server
+
+### What's Manual vs Automated
+| Task | Stage 7 (now) | Future improvement |
+|---|---|---|
+| SSH into server | Manual | Jenkins does it automatically |
+| git pull | Manual | Jenkins triggers on merge |
+| docker build | Manual | Jenkins pipeline stage |
+| docker compose up | Manual | Jenkins pipeline stage |
+
+This manual process will be fully automated when Jenkins is extended to deploy
+to EC2 via SSH in a future stage.
+
+## Stage 8: SonarQube Code Quality
+
+So the real constraint is always RAM, not disk.
+This is why:
+
+t2.micro (1GB RAM) → too small for either
+t3.medium (4GB RAM) → comfortable for one of them
+Your local WSL at 3.8GB → tight, especially with Jenkins + postgres + app already running
+
+Practical conclusion for your project:
+Both Stage 8 and 9 are best done on a persistent AWS Free Tier account where you can keep a t3.medium running without it resetting. The sandbox just isn't the right environment for them.
